@@ -1,4 +1,4 @@
-# STDISCM-P1
+# STDISCM-P2
 
 ## Overview
 This project implements a synchronization mechanism to manage the Looking for Group (LFG) dungeon queuing system of an MMORPG. The system ensures that multiple dungeon instances can be processed concurrently while preventing deadlock and starvation.
