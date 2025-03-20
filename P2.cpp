@@ -23,7 +23,7 @@ void printDungeonStatuses() {
     }
 }
 
-// Helper function to trim leading and trailing whitespace
+// Helper function to trim leading and trailing whitespace.
 void trim(string &s) {
     size_t start = s.find_first_not_of(" \t");
     size_t end = s.find_last_not_of(" \t");
@@ -34,7 +34,7 @@ void trim(string &s) {
     }
 }
 
-// Read configuration values from file
+// Read configuration values from file.
 bool readConfigFile(int &numDungeons, int &numTanks, int &numHealers, int &numDPS, int &minDungeonTime, int &maxDungeonTime) {
     const string fileName = "config.txt";
     ifstream file(fileName);
@@ -42,7 +42,8 @@ bool readConfigFile(int &numDungeons, int &numTanks, int &numHealers, int &numDP
         cerr << "Error: Unable to open configuration file: " << fileName << endl;
         return false;
     }
-
+    
+    // Check if the config file is empty.
     if (file.peek() == EOF) {
         cerr << "Error: Configuration file is empty." << endl;
         return false;
@@ -100,6 +101,10 @@ bool readConfigFile(int &numDungeons, int &numTanks, int &numHealers, int &numDP
                     cerr << "Error: t2 (max time) must be greater than or equal to t1." << endl;
                     return false;
                 }
+                if (maxDungeonTime > 15) {
+                    cerr << "Error: t2 (max time) must be less than or equal to 15." << endl;
+                    return false;
+                }
             } else {
                 cout << "Warning: Unknown configuration key \"" << key << "\". Skipping." << endl;
             }
@@ -111,7 +116,7 @@ bool readConfigFile(int &numDungeons, int &numTanks, int &numHealers, int &numDP
     return true;
 }
 
-// Attempt to form a party: 1 tank, 1 healer, 3 DPS
+// Attempt to form a party: 1 tank, 1 healer, 3 DPS.
 // Returns true if a party is formed (and decrements counts), false otherwise.
 bool formParty(int &numTanks, int &numHealers, int &numDPS) {
     if (numTanks < 1 || numHealers < 1 || numDPS < 3)
