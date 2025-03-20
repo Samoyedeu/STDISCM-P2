@@ -26,6 +26,10 @@ In the terminal, type:
 - g++ -std=c++11 -o P2 P2.cpp
 - P2
 
+## Output 
+- Status of dungeon instances: `active` or `empty`
+- Summary of dungeon instances statistics: `number of parties served` and `total time spent in dungeon instances`
+
 ### For Visual Studio Code (VS Code):
 1. Open the project folder in VS Code.
 2. Press Ctrl + F5 to build and run the program.
