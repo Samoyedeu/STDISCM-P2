@@ -6,6 +6,7 @@
 #include <chrono>
 #include <random>
 #include <mutex>
+#include <algorithm> // for std::min and std::min initializer list
 
 using namespace std;
 
@@ -133,74 +134,59 @@ bool readConfigFile() {
 
 // Persistent dungeon instance thread function that continuously processes parties.
 void queueParty(int instanceId) {
+    // Create a random generator for the dungeon run time.
     random_device rd;
     mt19937 gen(rd());
     uniform_int_distribution<> dis(minDungeonTime, maxDungeonTime);
-
+    
     while (true) {
-        // Check if a party can be formed
-        bool partyFormed = false;
+        // Attempt to form a party by deducting players.
         {
             lock_guard<mutex> lock(playerMutex);
-            if (numTanks >= 1 && numHealers >= 1 && numDPS >= 3) {
-                numTanks--;
-                numHealers--;
-                numDPS -= 3;
-                partyFormed = true;
-            }
-        }
-
-        if (!partyFormed) {
-            // If no party can be formed, break the loop if no players are left
-            lock_guard<mutex> lock(statsMutex);
             if (numTanks < 1 || numHealers < 1 || numDPS < 3) {
-                break;
+                break; // No more parties can be formed.
             }
-
-            // Otherwise, set dungeon as empty and retry
-            instanceStats[instanceId].active = false;
-            this_thread::sleep_for(chrono::milliseconds(50)); // Prevent busy waiting
-            continue;
+            numTanks--;
+            numHealers--;
+            numDPS -= 3;
         }
-
-        // Mark the dungeon as active
+        
+        // Mark this dungeon instance as active.
         {
             lock_guard<mutex> lock(statsMutex);
             instanceStats[instanceId].active = true;
         }
-
-        // Print status update
+        
         {
             lock_guard<mutex> lock(coutMutex);
-            cout << "\nDungeon Instance " << instanceId + 1 << " is active." << endl;
+            cout << "\nQueueing up players for Dungeon Instance " << instanceId + 1 << endl;
             printDungeonStatuses();
         }
-
-        // Simulate dungeon run
+        
+        // Simulate the dungeon run.
         int dungeonTime = dis(gen);
         this_thread::sleep_for(chrono::seconds(dungeonTime));
-
-        // Update statistics
+        
+        // Update statistics and mark instance as empty.
         {
             lock_guard<mutex> lock(statsMutex);
             instanceStats[instanceId].partiesServed++;
             instanceStats[instanceId].totalTime += dungeonTime;
-            instanceStats[instanceId].active = false;  // Mark empty
+            instanceStats[instanceId].active = false;
         }
-
+        
         {
             lock_guard<mutex> lock(coutMutex);
-            cout << "\nDungeon Instance " << instanceId + 1 << " served a party." << endl;
+            // cout << "\nDungeon Instance " << instanceId + 1 << " finished processing a party." << endl;
             printDungeonStatuses();
         }
     }
-
+    
     {
         lock_guard<mutex> lock(coutMutex);
-        cout << "\nDungeon Instance " << instanceId + 1 << " is closing." << endl;
+        // cout << "\nDungeon Instance " << instanceId + 1 << " is closing as no more parties can be formed." << endl;
     }
 }
-
 
 int main() {
     cout << "Reading config from config.txt" << endl;
@@ -208,12 +194,24 @@ int main() {
         return 1;
     }
     
-    // Resize the instanceStats vector based on the number of dungeon instances.
-    instanceStats.resize(numDungeons);
+    // Calculate the maximum possible parties that can be formed:
+    // Each party requires 1 tank, 1 healer, and 3 DPS.
+    int partiesByTanks   = numTanks;
+    int partiesByHealers = numHealers;
+    int partiesByDPS     = numDPS / 3;
+    int maxPossibleParties = min({partiesByTanks, partiesByHealers, partiesByDPS});
+    
+    // Determine the actual number of dungeon instances (threads) to run.
+    // If there are more possible parties than the allowed concurrent instances (numDungeons),
+    // we run numDungeons threads, otherwise we run only as many as there are full parties.
+    int numDungeonsToRun = (maxPossibleParties >= numDungeons) ? numDungeons : maxPossibleParties;
+    
+    // Resize the instanceStats vector based on numDungeonsToRun.
+    instanceStats.resize(numDungeonsToRun);
     
     vector<thread> dungeonThreads;
-    // Create persistent dungeon instance threads.
-    for (int i = 0; i < numDungeons; i++) {
+    // Create only the necessary dungeon threads.
+    for (int i = 0; i < numDungeonsToRun; i++) {
         dungeonThreads.emplace_back(queueParty, i);
     }
     
@@ -226,7 +224,7 @@ int main() {
     // Output summary statistics for each dungeon instance.
     cout << "\nDungeon Instance Summary:" << endl;
     int totalCountPartiesServed = 0;
-    for (int i = 0; i < numDungeons; i++) {
+    for (int i = 0; i < numDungeonsToRun; i++) {
         totalCountPartiesServed += instanceStats[i].partiesServed;
         cout << "Dungeon " << i + 1 
              << " served " << instanceStats[i].partiesServed 
@@ -235,7 +233,7 @@ int main() {
     }
     cout << "Total count of parties served: " << totalCountPartiesServed << endl;
     
-    // Print out any leftover players. 
+    // Print out any leftover players.
     cout << "\nLeftover players:" << endl;
     cout << "Tanks: " << numTanks << endl;
     cout << "Healers: " << numHealers << endl;
