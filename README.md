@@ -24,7 +24,6 @@ Set the configurations
 ## Compilation & Running
 In the terminal, type:
 - g++ -std=c++11 -o P2 P2.cpp
-- lpthread
 - P2
 
 ### For Visual Studio Code (VS Code):
