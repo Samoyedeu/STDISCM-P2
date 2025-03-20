@@ -133,59 +133,74 @@ bool readConfigFile() {
 
 // Persistent dungeon instance thread function that continuously processes parties.
 void queueParty(int instanceId) {
-    // Create a random generator for the dungeon run time.
     random_device rd;
     mt19937 gen(rd());
     uniform_int_distribution<> dis(minDungeonTime, maxDungeonTime);
-    
+
     while (true) {
-        // Attempt to form a party by deducting players.
+        // Check if a party can be formed
+        bool partyFormed = false;
         {
             lock_guard<mutex> lock(playerMutex);
-            if (numTanks < 1 || numHealers < 1 || numDPS < 3) {
-                break; // No more parties can be formed.
+            if (numTanks >= 1 && numHealers >= 1 && numDPS >= 3) {
+                numTanks--;
+                numHealers--;
+                numDPS -= 3;
+                partyFormed = true;
             }
-            numTanks--;
-            numHealers--;
-            numDPS -= 3;
         }
-        
-        // Mark this dungeon instance as active.
+
+        if (!partyFormed) {
+            // If no party can be formed, break the loop if no players are left
+            lock_guard<mutex> lock(statsMutex);
+            if (numTanks < 1 || numHealers < 1 || numDPS < 3) {
+                break;
+            }
+
+            // Otherwise, set dungeon as empty and retry
+            instanceStats[instanceId].active = false;
+            this_thread::sleep_for(chrono::milliseconds(50)); // Prevent busy waiting
+            continue;
+        }
+
+        // Mark the dungeon as active
         {
             lock_guard<mutex> lock(statsMutex);
             instanceStats[instanceId].active = true;
         }
-        
+
+        // Print status update
         {
             lock_guard<mutex> lock(coutMutex);
-            cout << "\nQueueing up players for Dungeon Instance " << instanceId + 1 << endl;
+            cout << "\nDungeon Instance " << instanceId + 1 << " is active." << endl;
             printDungeonStatuses();
         }
-        
-        // Simulate the dungeon run.
+
+        // Simulate dungeon run
         int dungeonTime = dis(gen);
         this_thread::sleep_for(chrono::seconds(dungeonTime));
-        
-        // Update statistics and mark instance as empty.
+
+        // Update statistics
         {
             lock_guard<mutex> lock(statsMutex);
             instanceStats[instanceId].partiesServed++;
             instanceStats[instanceId].totalTime += dungeonTime;
-            instanceStats[instanceId].active = false;
+            instanceStats[instanceId].active = false;  // Mark empty
         }
-        
+
         {
             lock_guard<mutex> lock(coutMutex);
-            cout << "\nDungeon Instance " << instanceId + 1 << " finished processing a party." << endl;
+            cout << "\nDungeon Instance " << instanceId + 1 << " served a party." << endl;
             printDungeonStatuses();
         }
     }
-    
+
     {
         lock_guard<mutex> lock(coutMutex);
-        cout << "\nDungeon Instance " << instanceId + 1 << " is closing as no more parties can be formed." << endl;
+        cout << "\nDungeon Instance " << instanceId + 1 << " is closing." << endl;
     }
 }
+
 
 int main() {
     cout << "Reading config from config.txt" << endl;
