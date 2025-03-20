@@ -206,11 +206,11 @@ int main() {
     // we run numDungeons threads, otherwise we run only as many as there are full parties.
     int numDungeonsToRun = (maxPossibleParties >= numDungeons) ? numDungeons : maxPossibleParties;
     
-    // Resize the instanceStats vector based on numDungeonsToRun.
-    instanceStats.resize(numDungeonsToRun);
+    // Resize the instanceStats vector to the total number of dungeons.
+    instanceStats.resize(numDungeons);
     
     vector<thread> dungeonThreads;
-    // Create only the necessary dungeon threads.
+    // Create threads for only the necessary dungeon instances.
     for (int i = 0; i < numDungeonsToRun; i++) {
         dungeonThreads.emplace_back(queueParty, i);
     }
@@ -224,7 +224,7 @@ int main() {
     // Output summary statistics for each dungeon instance.
     cout << "\nDungeon Instance Summary:" << endl;
     int totalCountPartiesServed = 0;
-    for (int i = 0; i < numDungeonsToRun; i++) {
+    for (int i = 0; i < numDungeons; i++) {
         totalCountPartiesServed += instanceStats[i].partiesServed;
         cout << "Dungeon " << i + 1 
              << " served " << instanceStats[i].partiesServed 
