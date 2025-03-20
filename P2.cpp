@@ -9,17 +9,32 @@
 
 using namespace std;
 
-// Global vector to track each dungeon instance's status.
-vector<string> dungeonStatus;
-mutex statusMutex; // Protects dungeonStatus
-mutex coutMutex;   // Protects console output
+mutex coutMutex;      // Protects console output
+mutex playerMutex;    // Protects global player counts
+mutex statsMutex;     // Protects instanceStats
 
-// Helper function to print the overall status of all dungeons.
+// Global configuration values.
+int numDungeons = 0, numTanks = 0, numHealers = 0, numDPS = 0;
+int minDungeonTime = 0, maxDungeonTime = 0;
+
+// Structure to hold statistics and status for each dungeon instance.
+struct DungeonStats {
+    bool active;
+    int partiesServed;
+    int totalTime;
+    DungeonStats() : active(false), partiesServed(0), totalTime(0) {}
+};
+
+// Global vector to store statistics and status for each dungeon instance.
+vector<DungeonStats> instanceStats;
+
+// Helper function to print the overall status of all dungeon instances.
 void printDungeonStatuses() {
-    lock_guard<mutex> lock(statusMutex);
+    lock_guard<mutex> lock(statsMutex);
     cout << "\nCurrent Dungeons Status:" << endl;
-    for (size_t i = 0; i < dungeonStatus.size(); i++) {
-        cout << "Dungeon " << i + 1 << ": " << dungeonStatus[i] << endl;
+    for (size_t i = 0; i < instanceStats.size(); i++) {
+        cout << "Dungeon " << i + 1 << ": " 
+             << (instanceStats[i].active ? "active" : "empty") << endl;
     }
 }
 
@@ -35,7 +50,7 @@ void trim(string &s) {
 }
 
 // Read configuration values from file.
-bool readConfigFile(int &numDungeons, int &numTanks, int &numHealers, int &numDPS, int &minDungeonTime, int &maxDungeonTime) {
+bool readConfigFile() {
     const string fileName = "config.txt";
     ifstream file(fileName);
     if (!file.is_open()) {
@@ -53,7 +68,7 @@ bool readConfigFile(int &numDungeons, int &numTanks, int &numHealers, int &numDP
     while (getline(file, line)) {
         size_t pos = line.find('=');
         if (pos == string::npos)
-            continue; // skip lines without an '=' sign
+            continue; // Skip lines without an '=' sign.
         
         string key = line.substr(0, pos);
         string value = line.substr(pos + 1);
@@ -87,13 +102,13 @@ bool readConfigFile(int &numDungeons, int &numTanks, int &numHealers, int &numDP
                 }
             } else if (key == "t1") {
                 minDungeonTime = stoi(value);
-                if (minDungeonTime <= 0) { // t1 must be greater than 0
+                if (minDungeonTime <= 0) {
                     cerr << "Error: t1 (min time) must be greater than 0." << endl;
                     return false;
                 }
             } else if (key == "t2") {
                 maxDungeonTime = stoi(value);
-                if (maxDungeonTime <= 0) { // t2 must be greater than 0
+                if (maxDungeonTime <= 0) {
                     cerr << "Error: t2 (max time) must be greater than 0." << endl;
                     return false;
                 }
@@ -116,107 +131,78 @@ bool readConfigFile(int &numDungeons, int &numTanks, int &numHealers, int &numDP
     return true;
 }
 
-// Attempt to form a party: 1 tank, 1 healer, 3 DPS.
-// Returns true if a party is formed (and decrements counts), false otherwise.
-bool formParty(int &numTanks, int &numHealers, int &numDPS) {
-    if (numTanks < 1 || numHealers < 1 || numDPS < 3)
-        return false;
-    numTanks--;
-    numHealers--;
-    numDPS -= 3;
-    return true;
-}
-
-// Structure to hold statistics for each dungeon instance.
-struct DungeonStats {
-    int partiesServed;
-    int totalTime;
-    DungeonStats() : partiesServed(0), totalTime(0) {}
-};
-
-// Global vector to store statistics for each dungeon instance.
-vector<DungeonStats> instanceStats;
-mutex statsMutex;  // Protects instanceStats
-
-// Function that simulates a dungeon instance processing one party.
-void dungeonInstance(int instanceId, int minTime, int maxTime) {
+// Persistent dungeon instance thread function that continuously processes parties.
+void queueParty(int instanceId) {
     // Create a random generator for the dungeon run time.
     random_device rd;
     mt19937 gen(rd());
-    uniform_int_distribution<> dis(minTime, maxTime);
-    int sleepTime = dis(gen);
+    uniform_int_distribution<> dis(minDungeonTime, maxDungeonTime);
     
-    // Simulate the dungeon run.
-    this_thread::sleep_for(chrono::seconds(sleepTime));
-    
-    {
-        // Update statistics in a thread-safe manner.
-        lock_guard<mutex> lock(statsMutex);
-        instanceStats[instanceId].partiesServed++;
-        instanceStats[instanceId].totalTime += sleepTime;
+    while (true) {
+        // Attempt to form a party by deducting players.
+        {
+            lock_guard<mutex> lock(playerMutex);
+            if (numTanks < 1 || numHealers < 1 || numDPS < 3) {
+                break; // No more parties can be formed.
+            }
+            numTanks--;
+            numHealers--;
+            numDPS -= 3;
+        }
+        
+        // Mark this dungeon instance as active.
+        {
+            lock_guard<mutex> lock(statsMutex);
+            instanceStats[instanceId].active = true;
+        }
+        
+        {
+            lock_guard<mutex> lock(coutMutex);
+            cout << "\nQueueing up players for Dungeon Instance " << instanceId + 1 << endl;
+            printDungeonStatuses();
+        }
+        
+        // Simulate the dungeon run.
+        int dungeonTime = dis(gen);
+        this_thread::sleep_for(chrono::seconds(dungeonTime));
+        
+        // Update statistics and mark instance as empty.
+        {
+            lock_guard<mutex> lock(statsMutex);
+            instanceStats[instanceId].partiesServed++;
+            instanceStats[instanceId].totalTime += dungeonTime;
+            instanceStats[instanceId].active = false;
+        }
+        
+        {
+            lock_guard<mutex> lock(coutMutex);
+            cout << "\nDungeon Instance " << instanceId + 1 << " finished processing a party." << endl;
+            printDungeonStatuses();
+        }
     }
     
     {
-        // Mark this dungeon instance as empty.
-        lock_guard<mutex> lock(statusMutex);
-        dungeonStatus[instanceId] = "empty";
-    }
-    
-    {
-        // Print the updated overall dungeon status.
         lock_guard<mutex> lock(coutMutex);
-        printDungeonStatuses();
+        cout << "\nDungeon Instance " << instanceId + 1 << " is closing as no more parties can be formed." << endl;
     }
 }
 
 int main() {
-    int numDungeons = 0, numTanks = 0, numHealers = 0, numDPS = 0;
-    int minDungeonTime = 0, maxDungeonTime = 0;
-    
     cout << "Reading config from config.txt" << endl;
-    if (!readConfigFile(numDungeons, numTanks, numHealers, numDPS, minDungeonTime, maxDungeonTime)) {
+    if (!readConfigFile()) {
         return 1;
     }
     
-    // Initialize dungeon statistics and statuses for each instance.
+    // Resize the instanceStats vector based on the number of dungeon instances.
     instanceStats.resize(numDungeons);
-    dungeonStatus.resize(numDungeons, "empty");
     
     vector<thread> dungeonThreads;
-    int instanceId = 0; // Round-robin assignment of dungeon instances.
-    
-    // Process parties until we run out of enough players.
-    while (formParty(numTanks, numHealers, numDPS)) {
-        // If we have reached the max concurrent dungeon instances, wait for them to finish.
-        if (dungeonThreads.size() >= static_cast<size_t>(numDungeons)) {
-            for (auto &th : dungeonThreads) {
-                if (th.joinable())
-                    th.join();
-            }
-            dungeonThreads.clear();
-        }
-        
-        // Mark the current dungeon instance as active.
-        {
-            lock_guard<mutex> lock(statusMutex);
-            dungeonStatus[instanceId] = "active";
-        }
-        
-        {
-            // Print the overall status block immediately after queueing players.
-            lock_guard<mutex> lock(coutMutex);
-            cout << "\nQueueing up players" << endl;
-            printDungeonStatuses();
-        }
-        
-        // Launch a dungeon instance thread for the formed party.
-        dungeonThreads.emplace_back(dungeonInstance, instanceId, minDungeonTime, maxDungeonTime);
-        
-        // Cycle through dungeon instance IDs.
-        instanceId = (instanceId + 1) % numDungeons;
+    // Create persistent dungeon instance threads.
+    for (int i = 0; i < numDungeons; i++) {
+        dungeonThreads.emplace_back(queueParty, i);
     }
     
-    // Wait for any remaining dungeon threads to finish.
+    // Wait for all dungeon threads to finish.
     for (auto &th : dungeonThreads) {
         if (th.joinable())
             th.join();
@@ -224,14 +210,17 @@ int main() {
     
     // Output summary statistics for each dungeon instance.
     cout << "\nDungeon Instance Summary:" << endl;
+    int totalCountPartiesServed = 0;
     for (int i = 0; i < numDungeons; i++) {
+        totalCountPartiesServed += instanceStats[i].partiesServed;
         cout << "Dungeon " << i + 1 
              << " served " << instanceStats[i].partiesServed 
              << " parties, total time = " << instanceStats[i].totalTime 
              << " seconds." << endl;
     }
+    cout << "Total count of parties served: " << totalCountPartiesServed << endl;
     
-    // Print out any leftover players.
+    // Print out any leftover players. 
     cout << "\nLeftover players:" << endl;
     cout << "Tanks: " << numTanks << endl;
     cout << "Healers: " << numHealers << endl;
